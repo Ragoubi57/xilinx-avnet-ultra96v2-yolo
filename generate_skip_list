@@ -1,0 +1,51 @@
+import tensorflow as tf
+
+INPUT_GRAPH = "frozen_yolo_stripped.pb"
+
+def generate_skip_list():
+    graph_def = tf.compat.v1.GraphDef()
+    with tf.io.gfile.GFile(INPUT_GRAPH, "rb") as f:
+        graph_def.ParseFromString(f.read())
+    
+    # Ops that cause quantizer crashes
+    SKIP_OPS = {'BatchMatMulV2', 'BatchMatMul', 'MatMul', 'Softmax'}
+    
+    skip_nodes = []
+    for node in graph_def.node:
+        if node.op in SKIP_OPS:
+            skip_nodes.append(node.name)
+    
+    # Generate the command-line argument
+    skip_string = ",".join(skip_nodes)
+    
+    print("=" * 60)
+    print(f"Found {len(skip_nodes)} nodes to skip")
+    print("=" * 60)
+    
+    print("\n--- NODES TO SKIP ---")
+    for node in skip_nodes:
+        print(f"  {node}")
+    
+    print("\n" + "=" * 60)
+    print("USE THIS QUANTIZE COMMAND:")
+    print("=" * 60)
+    
+    cmd = f'''vai_q_tensorflow quantize \\
+  --input_frozen_graph frozen_yolo_stripped.pb \\
+  --input_nodes images \\
+  --input_shapes 1,640,640,3 \\
+  --output_nodes PartitionedCall/PartitionedCall/model_41/tf.nn.convolution_871/convolution,PartitionedCall/PartitionedCall/model_41/tf.nn.convolution_872/convolution,PartitionedCall/PartitionedCall/model_41/tf.nn.convolution_873/convolution,PartitionedCall/PartitionedCall/model_41/tf.nn.convolution_874/convolution,PartitionedCall/PartitionedCall/model_41/tf.nn.convolution_875/convolution \\
+  --input_fn input_fn.calib_input \\
+  --output_dir quant_output \\
+  --calib_iter 20 \\
+  --skip_nodes "{skip_string}"'''
+    
+    print(cmd)
+    
+    # Also save to file for easy copy
+    with open("skip_nodes.txt", "w") as f:
+        f.write(skip_string)
+    print("\n\nSkip list also saved to: skip_nodes.txt")
+
+if __name__ == "__main__":
+    generate_skip_list()
